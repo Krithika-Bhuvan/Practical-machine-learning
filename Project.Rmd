@@ -1,0 +1,207 @@
+---
+title: "Machine learning project"
+output: 
+    pdf_document:
+        pandoc_args: [
+      "+RTS", "-K5000000",
+      "-RTS"
+    ]
+---
+
+##Executive Summary
+The data is from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal was to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
+
+In this report, we used cross validation and evaluated three different predition methods on the training set and chose the model that gave the highest accuracy as the "best model". This model was then applied one time on the test dataset to get the final class prediction. 
+
+After comparing three methods - PCA with SVM, Random Forest, and GLM Net, I found that the Random Forest model gave the highest accuracy and chose that as the best model.
+
+## Downloading data and installing
+```{r, eval=FALSE}
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainUrl, destfile = "train.csv",method = "curl")
+
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testUrl, destfile = "test.csv",method = "curl")
+
+install.packages("AppliedPredictiveModeling")
+install.packages("caret", dependencies = TRUE)
+```
+Read in train and test set
+```{r}
+library(AppliedPredictiveModeling) 
+library(caret) 
+train <- read.csv("train.csv")
+test <- read.csv("test.csv")
+```
+## Data cleaning
+More information about the data: Each version of the excersise (classe A-E) was repeated 10 times. The researchers devided each collection of measurements for a person and exercise class into timeframes (sliding window approach). The end of a timeframe is marked with "yes" in the "newwindow"" column. In these rows they give the values for the calculated features (like mean, standard deviation, etc.) for the respective window. Each window (timeframe) is identified in the num_window column.
+
+```{r}
+#Since new_window=yes colunms have mean, SD which are derived from original data, 
+#we don't really care about them. So remove those rows
+train1 <- train[(train$new_window=="no"),]
+
+#remove columns that have NA or blank values
+col1 <- colSums(is.na(train1)) #Sum of NA values in each column
+train2 <- train1[,(col1 == 0)] #remove Columns that have atleast one NA value
+col2 <- colSums(train2 == "")
+train3 <- train2[, (col2 == 0)] #remove Columns that have atleast one blank value
+
+#creating unique primary key
+train3$name <- paste(train3$X, train3$user_name, train3$raw_timestamp_part1,
+                     train3$raw_timestamp_part2, sep="|")
+row.names(train3) <- train3$name
+
+#The first few columns are un-necessary, so removing them
+train4 <- train3[, -(1:7)]
+train4 <- train4[, -(54)]
+
+#checking for zero variance -- none of them have zero variance
+#nsv <- caret::nearZeroVar(trainClean,saveMetrics = TRUE)
+trainClean <- train4 #this is the final cleaned training data
+
+#pull out same columns for test data also
+colName1 <- colnames(trainClean)
+testClean <- test[, names(test) %in% colName1] #note that this does not have Classe Column
+
+# split cleaned training data into 70-30
+trainIndex = createDataPartition(trainClean$classe,p=0.70,list=FALSE) 
+subTrain = trainClean[trainIndex,] 
+subTest = trainClean[-trainIndex,] 
+```
+
+## Perform exploratory analysis on cleaned training set
+```{r, eval=FALSE}
+install.packages("corrplot")
+```
+The corrlelation plot shows a number of highly correlated variables. So we need to do some feature selection and choose only those features that are the most informative.
+```{r}
+library(corrplot)
+# exploratory analysis -- on train set 
+corrplot(cor(subTrain[,1:52]), type="upper", order="AOE")
+```
+
+### Model 1 - Using Principal Component Analyis (PCA) and Support Vector machine(SVM)
+Using PCA for dimension reduction, and SVM for model training and testing. We first find PCs that can explain 90% of variability (if I had more RAM I would have set that to 95% variability). Use those principal components generated on training set to build SVM model and apply on training set.
+Note: For this kind of data, I did not center, scale or log transform data. If all the columns were the same measurements (eg: like the IL* markers in the AlzheimerDisease), I might have used these preprocessing methods.
+
+From this model, we ge an Accuracy of 0.8766 (87%) and a Kappa of 0.8423 (excellent)
+
+The kappa statistic is a measure of how closely the instances classified by the machine learning classifier matched the data labeled as ground truth, controlling for the accuracy of a random classifier as measured by the expected accuracy. This statistic can shed light into how the classifier itself performed, the kappa statistic for one model is directly comparable to the kappa statistic for any other model used for the same classification task. According to Fleiss,  kappas > 0.75 are excellent, 0.40-0.75 as fair to good, and < 0.40 as poor. 
+
+```{r, cache=TRUE}
+#Find the number of features that can explain 90% of variability
+preProc1 <- preProcess(subTrain[,1:52], method="pca", thresh=0.90, verbose = FALSE) 
+#preProc1$rotation #25 PCs - 95% variance. 18PCs for 90% variance
+
+#for parallel processing
+library(parallel, quietly=T)
+library(doParallel, quietly=T)
+
+#Turn on Parallel Processing (leave at least 1 core free so your machine          
+#is still usable when doing the calc)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+#5 fold cross validation
+trainControl5Fold <- trainControl(method="cv", number=5) 
+# if you have more RAM, do this:
+#trainControl5Fold <- trainControl(method="repeatedcv", number=10, repeats = 5) 
+
+trainPC <- predict(preProc1, subTrain[,1:52]) #using PCA on train data to get train PCs
+
+# using SVM to create model
+set.seed(1)
+modelFit1 <- train(subTrain$classe~., data=trainPC, method="svmRadial", trControl=trainControl5Fold) # NOTE - GLM does not work because it Can only model 2 class outcome
+predictors(modelFit1) #shows the selected 18 PC features 
+modelFit1$finalModel
+testPC <- predict(preProc1, subTest[,1:52]) #using train PCA on test data
+predictedY1 <- predict(modelFit1, testPC) #predict outcome on test data
+
+confusionMatrix(subTest$classe, predictedY1) #Actual Y from test data vs Predicted Y
+# Accuracy = 0.8766
+
+## Turn off Parallel Processing
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+### Model 2 - Random Forest
+Random Forst will automatically also do feature selection. From this model, we get Acuracyof 0.9912 (99%), and OOB estimate of error rate 0.76%
+```{r, cache=TRUE}
+# Model 2 -- Random Forst will automatically also do feature selection
+
+# Turn on Parallel Processing (leave at least 1 core free so your machine 
+#is still usable when doing the calc)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+set.seed(1)
+modelFit2 <- train(subTrain$classe~., data=subTrain, method="rf",
+                   trControl=trainControl5Fold) 
+#predictors(modelFit2) #Shows the selected features in the final model
+#modelFit2$finalModel
+predictedY2 <- predict(modelFit2, subTest[,1:52]) #prediction 
+confusionMatrix(subTest$classe, predictedY2) #confusion matrix
+#Acuracy = 0.9912
+#OOB estimate of  error rate: 0.76%
+
+## Turn off Parallel Processing
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+### Model 3 - Generalized linear model (GLM)
+When Alpha = 0 is ridge regression, alpha = 1 means it is lasso. Alpha = 0.5 is elastic net. Lambda is the shrinkage parameter: when Lambda=0, no shrinkage is performed, and as Lambda increases, the coefficients are shrunk ever more strongly. 
+
+In order to choose from the various models with different lambda values provided by glmnet, we perform cross validation using the cv.glmnet function with misclassification error as the criterion for 5-fold procedure. The lambda value that yields the minimum cross validation error gives the best model. The figure below shows a plot of lambda with mis-classification error. The very small error rate at the optimal lambda is a sign of the model’s effectiveness.
+
+We can see that the final GLM model has an accuracy of 0.7321 (73%), with Kappa value of 0.6603 (good). 
+```{r, cache=TRUE}
+library(glmnet)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+
+# GLM
+set.seed(1)
+modelFit3 <- glmnet(x = as.matrix(subTrain[, 1:52]), y = subTrain$classe, family = "multinomial", alpha = 0.5) #build Model
+
+## OR
+# modelFit3 <- train(subTrain$classe~., data=subTrain, method="glmnet",family="multinomial", tuneGrid = expand.grid(.alpha = seq(0,1,by=0.2), .lambda = seq(0, 0.05, by = 0.05)), trControl=trainControl5Fold) 
+
+#Model with cross validation.Lambda value that yields the minimum cross validation error is returned 
+modelFit3.cv <-cv.glmnet(x = as.matrix(subTrain[, 1:52]), y = subTrain$classe, 
+        family = "multinomial", alpha = 0.5, nfolds = 5, type.measure = "class")
+modelFit3.cv$lambda.min
+plot(modelFit3.cv)
+
+predictedY3 <- predict(modelFit3.cv, newx = as.matrix(subTest[,1:52]), 
+                       type = "class", s = "lambda.min")
+confusionMatrix(subTest$classe, predictedY3) #accuracy = 0.732
+
+## Turn off PP
+stopCluster(cluster)
+registerDoSEQ()
+```
+### Best model 
+So we can see that Random Forest gave the highest accuracy, so that is the model that we select. Accuracy is 0.9911 and Out of sample error is 0.0088 (0.8%).  Ideally it would have been better to use 10 or more fold cross validation to get a more robust model, but was not possible. due to RAM restrictions.
+If we had a 2 class problem, we would have been able to plot ROC curves. But since this is a multi-class problem, I have not plotted ROC curves
+
+```{r}
+#Final RF model
+modelFit2$finalModel  
+#Accuracy
+accuracy2 <- postResample(predictedY2, subTest$classe)
+accuracy2
+# Out of sample error = 1-accuracy 
+oose2 <- 1 - as.numeric(confusionMatrix(subTest$classe, predictedY2)$overall[1]) 
+oose2
+```
+### Predicting on test data
+Now that we have chosen the best model, we will apply this model one time on the test data
+```{r}
+pred <- predict(modelFit2, testClean)
+pred
+```
+###Conclusion
+Random Forest model gave the highest accuracy (99.1%) with 5 fold cross validation, so that is the model that we select and applied to the test data and gave all correct classes.
