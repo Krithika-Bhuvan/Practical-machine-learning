@@ -17,6 +17,9 @@ The data is from accelerometers on the belt, forearm, arm, and dumbell of 6 part
 * Correlation plot
 * The corrlelation plot showed a number of highly correlated variables. So we need to do some feature selection and choose only those features that are the most informative
 
+<img width="742" alt="Screen Shot 2023-05-11 at 10 33 28 PM" src="https://github.com/Krithika-Bhuvan/Practical-machine-learning/assets/1800604/ded099c2-e545-4335-85b2-891c4c0da79d">
+
+
 ### Model building
 In this report, we used cross validation and evaluated three different predition methods on the training set and chose the model that gave the highest accuracy as the "best model". This model was then applied one time on the test dataset to get the final class prediction. 
 
@@ -35,7 +38,11 @@ Note - The kappa statistic is a measure of how closely the instances classified 
 * Results - From this model, we got Acuracy of 0.9912 (99%), and OOB estimate of error rate 0.76%
 
 #### Model 3 - Generalized linear model (GLM)
-In order to choose from the various models with different lambda values provided by glmnet, we performed cross validation using the cv.glmnet function with misclassification error as the criterion for 5-fold procedure. The lambda value that yields the minimum cross validation error gives the best model. The figure below shows a plot of lambda with mis-classification error. The very small error rate at the optimal lambda is a sign of the model’s effectiveness.
+In order to choose from the various models with different lambda values provided by glmnet, we performed cross validation using the cv.glmnet function with misclassification error as the criterion for 5-fold procedure. The lambda value that yields the minimum cross validation error gives the best model. The figure below shows a plot of lambda with mis-classification error. 
+
+The optimal lambda value is returned and automatically used in model building. The very small error rate at the optimal lambda is a sign of the model’s effectiveness.
+
+<img width="727" alt="Screen Shot 2023-05-11 at 10 33 48 PM" src="https://github.com/Krithika-Bhuvan/Practical-machine-learning/assets/1800604/64da1811-5cdc-473d-accb-7d805ae9c32b">
 
 * When the penalty Alpha = 0 is ridge regression, alpha = 1 means it is lasso. Alpha = 0.5 is elastic net. 
 * Lambda is the shrinkage parameter: when Lambda=0, no shrinkage is performed, and as Lambda increases, the coefficients are shrunk ever more strongly. 
